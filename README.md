@@ -1,6 +1,6 @@
 # Twingate Connector for Ubiquiti Gateways
 
-Deploy a [Twingate](https://www.twingate.com/) Connector on Ubiquiti gateway devices using a lightweight systemd-nspawn container.
+Deploy a [Twingate](https://www.twingate.com/) Connector on Ubiquiti Gateway devices using a lightweight systemd-nspawn container.
 
 ## Overview
 
@@ -19,61 +19,54 @@ The container filesystem is stored under `/data/custom/machines/`, which persist
 
 ## Prerequisites
 
-- A **Ubiquiti gateway** (UDM Pro, UDM SE, UXG-Pro, UXG-Max, or similar) running UniFi OS 3.x or later
+- A **Ubiquiti Gateway** (UDM Pro, UDM SE, UXG-Pro, UXG-Max, or similar) running UniFi OS 3.x or later
 - **SSH access** to the gateway as root
-- A **Twingate account** with a Connector provisioned
-- **Internet connectivity** on the gateway (for downloading packages and Twingate binaries)
+- A **Twingate account** with access to the Admin Console
+- **Internet connectivity** on the Gateway (for downloading packages and Twingate binaries)
 
 ### Generating Connector Tokens
 
 1. Log in to the [Twingate Admin Console](https://www.twingate.com/)
 2. Navigate to **Network > Connectors**
-3. Click **Deploy Connector** and select **Linux**
-4. Copy the three values you'll need:
-   - **Network name** (e.g., `mycompany`)
+3. Click **Deploy Connector** and select **Manual**
+4. Click **Generate New Tokens**
+5. Copy the three values you'll need:
+   - **Network name** (e.g., `mycompany` from `https://mycompany.twingate.com`)
    - **Access token**
    - **Refresh token**
 
 ## Quick Start
 
-### Option 1: One-liner
+### Option 1: Interactive
 
 ```bash
 curl -sSf https://raw.githubusercontent.com/Twingate-Community/ubiquiti-gateway-connector/main/setup.sh | sudo bash
 ```
 
-This will prompt interactively for your Twingate credentials.
+The script will prompt for your container name, Twingate network name, access token, and refresh token.
 
-### Option 2: Clone and run
-
-```bash
-git clone https://github.com/Twingate-Community/ubiquiti-gateway-connector.git
-cd ubiquiti-gateway-connector
-sudo bash setup.sh
-```
-
-### Option 3: Non-interactive (environment variables)
+### Option 2: Non-interactive
 
 ```bash
-export TWINGATE_NETWORK="mycompany"
-export TWINGATE_ACCESS_TOKEN="your-access-token"
-export TWINGATE_REFRESH_TOKEN="your-refresh-token"
-sudo -E bash setup.sh
+curl -sSf https://raw.githubusercontent.com/Twingate-Community/ubiquiti-gateway-connector/main/setup.sh | sudo TWINGATE_NETWORK="mycompany" TWINGATE_ACCESS_TOKEN="your-access-token" TWINGATE_REFRESH_TOKEN="your-refresh-token" bash
 ```
+
+All three environment variables are required for non-interactive mode. You can also set `CONTAINER_NAME` to override the default (`twingate-connector`).
 
 ## What the Script Does
 
 1. Checks for root privileges
-2. Prompts for Twingate credentials (or reads them from environment variables)
-3. Validates that no existing container is already running
-4. Installs host dependencies (`systemd-container`, `debootstrap`)
-5. Bootstraps a Debian Bookworm container (~10 minutes on gateway hardware)
-6. Configures the container (root password, DNS resolvers, hostname, systemd-networkd)
-7. Creates the nspawn configuration with host networking and all capabilities
-8. Starts the container and enables auto-start on boot
-9. Installs the Twingate Connector inside the container using the [official setup script](https://binaries.twingate.com/connector/setup.sh)
-10. Applies a user namespace compatibility fix for kernels that don't support it
-11. Verifies the Connector status and prints a summary
+2. Prompts for a container name. Defaults to `twingate-connector` (if interactive)
+3. Prompts for Twingate credentials (or reads them from environment variables) (if interactive)
+4. Validates that no existing container is already running
+5. Installs host dependencies (`systemd-container`, `debootstrap`)
+6. Bootstraps a Debian Bookworm container (~10 minutes on gateway hardware)
+7. Configures the container (root password, DNS resolvers, hostname, systemd-networkd)
+8. Creates the nspawn configuration with host networking and all capabilities
+9. Starts the container and enables auto-start on boot
+10. Installs the Twingate Connector inside the container using the [official Linux setup script](https://binaries.twingate.com/connector/setup.sh)
+11. Applies a user namespace compatibility fix for kernels that don't support it
+12. Verifies the Connector status and prints a summary
 
 ## Container Management
 
@@ -96,7 +89,7 @@ sudo -E bash setup.sh
 
 ## Uninstall
 
-To completely remove the Connector and container:
+To completely remove the Connector and container (swap `twingate-connector` for Connector name if using a custom name):
 
 ```bash
 sudo machinectl disable twingate-connector
@@ -112,7 +105,7 @@ sudo rm -f /etc/systemd/nspawn/twingate-connector.nspawn
 - The container root password is set to `twingate`. The container is not network-accessible (no SSH server inside), so risk is minimal. Change it if desired via `machinectl shell`.
 - Twingate tokens are stored inside the container at `/etc/twingate/connector.conf`, which is the standard Connector behavior.
 - **User namespaces are disabled** (`PrivateUsers=off`) because most Ubiquiti gateway kernels lack user namespace support.
-- The script uses `curl | bash` to run the official Twingate installer inside the container. This is the same installation method [documented by Twingate](https://www.twingate.com/docs/connectors).
+- The script uses `curl | bash` to run the official Twingate installer inside the container. This is the same installation method [documented by Twingate](https://www.twingate.com/docs/connectors-on-linux).
 
 ## Troubleshooting
 
@@ -128,11 +121,11 @@ journalctl -M twingate-connector -xe --no-pager
 1. Verify your credentials were entered correctly
 2. Check DNS resolution inside the container:
    ```bash
-   machinectl shell twingate-connector /bin/bash -c "curl -s https://binaries.twingate.com"
+   nsenter -t $(machinectl show twingate-connector -p Leader --value) -m -u -i -n -p -- curl -s https://binaries.twingate.com
    ```
 3. Check Connector logs:
    ```bash
-   machinectl shell twingate-connector /bin/bash -c "journalctl -u twingate-connector -n 50 --no-pager"
+   nsenter -t $(machinectl show twingate-connector -p Leader --value) -m -u -i -n -p -- journalctl -u twingate-connector -n 50 --no-pager
    ```
 
 ### Container missing after firmware upgrade
@@ -141,7 +134,7 @@ The container data in `/data/custom/machines/` persists across firmware upgrades
 
 ### debootstrap takes a long time
 
-This is normal on gateway hardware. Expect approximately 10 minutes depending on your internet connection and device.
+This is normal on Gateway hardware. Expect approximately 5-10 minutes depending on your internet connection and device.
 
 ## Repository Structure
 
